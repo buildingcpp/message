@@ -1,20 +1,58 @@
 #include "./my_protocol.h"
 
+#include <array>
+#include <string>
 #include <iostream>
+#include <atomic>
+#include <memory>
+
+// a flag used to indicate that the message has been received
+std::atomic<bool> done{false};
+
+ // alias for whatever type of container we choose to represent packet
+using packet_type = bcpp::message::packet<my_protocol, std::vector<char>>; 
+
+// alias for a pipe containing packets which contain messages from the protocol 'my_protocol' 
+// with std::queue used to store incoming packets
+using pipe_type = bcpp::message::pipe<my_protocol, std::queue<packet_type>>; 
+
+using message_sender = bcpp::message::transmitter<packet_type>;
 
 
 //=============================================================================
-class my_class : 
-    public bcpp::message::receiver<my_class, my_protocol>
+// a toy class that will receive messages via the input pipe provided to its constructor
+class message_recipient : 
+    bcpp::message::receiver<message_recipient, my_protocol>
 {
 public:
 
+    message_recipient
+    (
+        std::shared_ptr<pipe_type> pipe
+    ):
+        pipe_(pipe)
+    {
+    }
+
+    void check_for_messages
+    (
+        // check for data in the pipe and process the 
+        // messages it contains, if any.  Route those messages
+        // to the message::receiver 'this'
+    )
+    {
+        if (!pipe_->empty())
+            pipe_->process_next_message(*this);
+    }
+
 private:
 
-    friend class receiver; // allow base receiver class to receiver to private 
+    // friend so that base class can access the messages callbacks in the private section.
+    friend class receiver<message_recipient, my_protocol>;
 
-    my_class & operator()
+    auto & operator()
     (
+        // a message callback used when receiving login_request_messages
         receiver const &,
         login_request_message const & loginRequestMessage
     )
@@ -23,7 +61,23 @@ private:
                 ", password = " << std::string_view(loginRequestMessage.password_.data(), loginRequestMessage.password_.size()) << '\n';
         return *this;
     }
+
+    auto & operator()
+    (
+        // a message callback used when receiving login_response_messages
+        receiver const &,
+        login_response_message const & loginResponseMessage
+    )
+    {
+        std::cout << "Got login response message\n";
+        done = true;
+        return *this;
+    }
+
+    // the incoming pipe containg data (messages) from the protocol 'my_protocol'
+    std::shared_ptr<pipe_type> pipe_;
 };
+
 
 
 //=============================================================================
@@ -33,30 +87,21 @@ int main
     char **
 )
 {
-    my_class myClass;
+    // create a pipe that we will push messages into 
+    // and which, our messages recipient class shall pop messages out of
+    auto pipe = std::make_shared<pipe_type>(pipe_type::configuration{}, pipe_type::event_handlers{});
+    message_recipient messageRecipient(pipe);
+    message_sender messageSender({}, {.packetHandler_ = [&](auto const &, auto packet){*pipe << std::move(packet);}});
 
-    // create a login request message
-    login_request_message loginRequestMessage;
-    std::string account = "my_account";
-    std::string password = "my_password";
-    std::fill_n(loginRequestMessage.account_.data(), loginRequestMessage.account_.size(), '\0');
-    std::copy_n(account.data(), account.size(), loginRequestMessage.account_.data());
-    std::fill_n(loginRequestMessage.password_.data(), loginRequestMessage.password_.size(), '\0');
-    std::copy_n(password.data(), password.size(), loginRequestMessage.password_.data());
+    // create a login request message in a 'packet'
+    messageSender.send(login_request_message("my_account", "my_password"));
+    messageSender.send(login_response_message(login_response_message::response_code::success));
 
-    auto send = [&]<typename T>
-    (
-        // "send" a message as an arbitrary binary blob.  This is a simple demo
-        // so there is no actual stream to send data on.  Instead we simply 
-        // hand the blob to the instance that will receive it as if it were via
-        // some input stream.
-        T const & message
-    )
-    {
-        myClass.process(std::span(reinterpret_cast<std::uint8_t const *>(&message), sizeof(message)));
-    };
+    messageSender.flush();
 
-    send(loginRequestMessage);
-    
+    // loop until the message recipient class has acked the message that we just pushed into the pipe.
+    while (!done)
+        messageRecipient.check_for_messages();
+  
     return 0;
 }

@@ -26,8 +26,8 @@ namespace bcpp::message
             decltype([]<std::size_t ... N>(std::index_sequence<N ...>) -> protocol<typename T::traits, T::get(N) ...>
             {return {};}(std::make_index_sequence<T::messageIndicators_.size()>()))>;
 
-} // namespace bcpp::message
 
+} // namespace bcpp::message
 
 
 //=============================================================================

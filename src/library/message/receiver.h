@@ -1,6 +1,6 @@
 #pragma once
 
-#include "./protocol.h"
+#include "./protocol/protocol.h"
 
 #include <span>
 #include <type_traits>
@@ -36,7 +36,6 @@ namespace bcpp::message
 
     private:
 
-
         static auto constexpr bits_per_byte = 8;
         static auto constexpr max_underlying_message_indicator_value = (1 << (sizeof(underlying_message_indicator) * bits_per_byte));
 
@@ -51,8 +50,17 @@ namespace bcpp::message
             return (reinterpret_cast<target &>(self)(self, *reinterpret_cast<message_type const *>(address)));
         }
 
-        std::array<target &(*)(receiver &, void const *), max_underlying_message_indicator_value> callback_;
-    };
+        static std::array<target &(*)(receiver &, void const *), max_underlying_message_indicator_value> callback_;
+
+    }; // class receiver
+
+
+    template <typename T, protocol_concept P>
+    std::array<T &(*)(receiver<T, P> &, void const *), receiver<T, P>::max_underlying_message_indicator_value> receiver<T, P>::callback_;
+
+
+    template <typename T>
+    concept receiver_concept = std::is_same_v<T, receiver<typename T::target, typename T::protocol>>;
 
 } // namespace bcpp::message
 
@@ -63,16 +71,16 @@ bcpp::message::receiver<T, P>::receiver
 (
 )
 {
-    for (auto & callback : callback_)
-        callback = nullptr;
-
-    [&]<std::size_t ... N>(std::index_sequence<N ...>)
+    static auto once = [&]<std::size_t ... N>(std::index_sequence<N ...>)
     {
+        for (auto & callback : callback_)
+            callback = nullptr;
         ([&]()
-            {
+            {    
                 // only configure a callback if 'target' supports receiving that message type
                 if constexpr (requires (target t, receiver d, message<protocol, P::get(N)> m){t(d, m);})
                     callback_[static_cast<underlying_message_indicator>(P::get(N))] = dispatch_message<P::get(N)>;
             }(), ...);
+        return true;
     }(std::make_index_sequence<protocol::messageIndicators_.size()>());
 }
