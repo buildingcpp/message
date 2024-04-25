@@ -24,12 +24,12 @@ else()
     )
 endif()
 
-
 message("Build Type = ${CMAKE_BUILD_TYPE}")
 
 ###############################################################################
 # Fetch the main bcpp scripts which allows us to fetch other dependencies more easily
 ###############################################################################
+include(FetchContent)
 
 if ("${_scripts_src_path}" STREQUAL "")
     set(_scripts_src_path ${CMAKE_BINARY_DIR}/scripts-src CACHE STRING "")
@@ -37,7 +37,7 @@ if ("${_scripts_src_path}" STREQUAL "")
 
     FetchContent_Declare(
         scripts
-        GIT_REPOSITORY scripts.git
+        GIT_REPOSITORY git@github.com:buildingcpp/scripts.git
         GIT_TAG main
         SOURCE_DIR        "${CMAKE_BINARY_DIR}/scripts-src"
         BINARY_DIR        "${CMAKE_BINARY_DIR}/scripts-build"
