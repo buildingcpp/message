@@ -2,35 +2,39 @@
 
 #include "./packet_queue.h"
 
-#include <library/message/receiver.h>
 #include <include/non_copyable.h>
 
-#include <functional>
 #include <span>
-#include <vector>
+#include <type_traits>
 #include <cstdint>
+#include <functional>
+#include <vector>
 #include <queue>
 #include <concepts>
 
 
-namespace bcpp::message 
+namespace bcpp::message
 {
 
-    template <protocol_concept T0, packet_queue_concept T1 = std::queue<std::vector<char const>>>
-    class pipe final :
+    template <typename T, protocol_concept P, packet_queue_concept Q = std::queue<std::vector<char const>>>
+    class receiver :
         non_copyable
     {
     public:
 
-        using protocol = T0;
-        using packet_queue = T1;
+        using target = T;
+        using protocol = P;
+        using packet_queue = Q;
         using packet = typename packet_queue::value_type;
+        using protocol_traits = typename protocol::traits;
+        using message_indicator = protocol_traits::message_indicator;
+        using underlying_message_indicator = std::make_unsigned_t<std::underlying_type_t<message_indicator>>;
 
         struct configuration 
         {
         };
 
-        using packet_discard_handler = std::function<void(pipe const &, packet &&)>;
+        using packet_discard_handler = std::function<void(receiver const &, packet &&)>;
 
         struct event_handlers
         {
@@ -38,36 +42,26 @@ namespace bcpp::message
         };
 
         template <typename ... Ts>
-        pipe
+        receiver
         (
             configuration const &,
             event_handlers,
             Ts && ...
         );
 
-        ~pipe();
-
-        pipe
+        receiver
         (
-            pipe &&
+            receiver && other
         );
-
-        pipe & operator =
+              
+        receiver & operator =
         (
-            pipe &&
+            receiver && other
         );
+        
+        ~receiver();
 
-
-        pipe & operator << 
-        (
-            packet &&
-        );
-
-        template <typename T_>
-        bool process_next_message
-        (
-            receiver<T_, protocol> &
-        );
+        bool process_next_message();
 
         std::size_t get_bytes_available() const;
 
@@ -75,7 +69,39 @@ namespace bcpp::message
 
         void close();
 
+        receiver & operator << 
+        (
+            packet &&
+        );
+
+    protected:
+
+        void process
+        (
+            std::span<std::uint8_t const> source
+        )
+        {
+            using message_header = bcpp::message::message_header<P>;
+            message_header const & messageHeader = *reinterpret_cast<message_header const *>(source.data());
+            if (auto callback = callback_[static_cast<underlying_message_indicator>(messageHeader.get_message_indicator())]; callback != nullptr)
+                callback(*this, source.data());
+        }
+
     private:
+
+        static auto constexpr bits_per_byte = 8;
+        static auto constexpr max_underlying_message_indicator_value = (1 << (sizeof(underlying_message_indicator) * bits_per_byte));
+
+        template <message_indicator M>
+        static target & dispatch_message
+        (
+            receiver & self,
+            void const * address
+        )
+        {
+            using message_type = message<protocol, M>;
+            return (reinterpret_cast<target &>(self)(self, *reinterpret_cast<message_type const *>(address)));
+        }
 
         void clear();
 
@@ -91,19 +117,25 @@ namespace bcpp::message
 
         std::size_t             bytesConsumedInNextPacket_{0};
 
-    };
-    
+        static std::array<target &(*)(receiver &, void const *), max_underlying_message_indicator_value> callback_;
+
+    }; // class receiver
+
+
+    template <typename T, protocol_concept P, packet_queue_concept Q>
+    std::array<T &(*)(receiver<T, P, Q> &, void const *), receiver<T, P, Q>::max_underlying_message_indicator_value> receiver<T, P, Q>::callback_;
+
 
     template <typename T>
-    concept pipe_concept = std::is_same_v<T, pipe<typename T::protocol, typename T::packet_queue>>;
+    concept receiver_concept = std::is_same_v<T, receiver<typename T::target, typename T::protocol, typename T::packet_queue>>;
 
 } // namespace bcpp::message
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
 template <typename ... Ts>
-bcpp::message::pipe<T0, T1>::pipe 
+bcpp::message::receiver<T, P, Q>::receiver 
 (
     configuration const & config,
     event_handlers eventHandlers,
@@ -111,13 +143,29 @@ bcpp::message::pipe<T0, T1>::pipe
 ):
     packets_(std::forward<Ts>(packetQueueArgs) ...),
     packetDiscardHandler_(eventHandlers.packetDiscardHandler_)
-{
+{    
+    static auto once = [&]<std::size_t ... N>(std::index_sequence<N ...>)
+    {
+        for (auto & callback : callback_)
+            callback = nullptr;
+        ([&]()
+            {    
+                // only configure a callback if 'target' supports receiving that message type
+                if constexpr (requires (target t, receiver d, message<protocol, P::get(N)> m){t(d, m);})
+                    callback_[static_cast<underlying_message_indicator>(P::get(N))] = dispatch_message<P::get(N)>;
+                else
+                {
+                    // TODO: add some kind of warning that this type of receiver has no handler for this type of message
+                }
+            }(), ...);
+        return true;
+    }(std::make_index_sequence<protocol::messageIndicators_.size()>());
 }
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-bcpp::message::pipe<T0, T1>::~pipe
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+bcpp::message::receiver<T, P, Q>::~receiver
 (
 )
 {
@@ -126,10 +174,10 @@ bcpp::message::pipe<T0, T1>::~pipe
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-bcpp::message::pipe<T0, T1>::pipe
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+bcpp::message::receiver<T, P, Q>::receiver
 (
-    pipe && other
+    receiver && other
 ):
     packets_(std::move(other.packets_)),
     buffered_(std::move(other.buffered_)),
@@ -144,11 +192,11 @@ bcpp::message::pipe<T0, T1>::pipe
 
         
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-auto bcpp::message::pipe<T0, T1>::operator =
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+auto bcpp::message::receiver<T, P, Q>::operator =
 (
-    pipe && other
-) -> pipe & 
+    receiver && other
+) -> receiver & 
 {
     if (this != & other)
     {
@@ -167,8 +215,8 @@ auto bcpp::message::pipe<T0, T1>::operator =
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-void bcpp::message::pipe<T0, T1>::clear
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+void bcpp::message::receiver<T, P, Q>::clear
 (
 )
 {
@@ -188,11 +236,11 @@ void bcpp::message::pipe<T0, T1>::clear
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-auto bcpp::message::pipe<T0, T1>::operator << 
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+auto bcpp::message::receiver<T, P, Q>::operator << 
 (
     packet && p
-) -> pipe &
+) -> receiver &
 {
     bytesAvailable_ += p.size();
     packets_.push(std::move(p));
@@ -201,8 +249,8 @@ auto bcpp::message::pipe<T0, T1>::operator <<
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-bool bcpp::message::pipe<T0, T1>::buffer_next_packet
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+bool bcpp::message::receiver<T, P, Q>::buffer_next_packet
 (
 )
 {
@@ -219,11 +267,9 @@ bool bcpp::message::pipe<T0, T1>::buffer_next_packet
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-template <typename T_>
-bool bcpp::message::pipe<T0, T1>::process_next_message
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+bool bcpp::message::receiver<T, P, Q>::process_next_message
 (
-    receiver<T_, protocol> & messageReceiver
 )
 {
     using message_header = message_header<protocol>;
@@ -257,7 +303,7 @@ bool bcpp::message::pipe<T0, T1>::process_next_message
         // the next packet has sufficient data to represent an entire message
         bytesConsumedInNextPacket_ += messageSize;
         bytesAvailable_ -= messageSize;
-        messageReceiver.process(std::span(reinterpret_cast<std::uint8_t const *>(&messageHeader), messageSize)); // dispatch the message
+        reinterpret_cast<target &>(*this).process(std::span(reinterpret_cast<std::uint8_t const *>(&messageHeader), messageSize)); // dispatch the message
         return true; // message dispatched
     }
 
@@ -284,7 +330,7 @@ bool bcpp::message::pipe<T0, T1>::process_next_message
 
         // the next packet has sufficient data to represent an entire message
         bytesAvailable_ -= messageSize;
-        messageReceiver.process(std::span(reinterpret_cast<std::uint8_t const *>(buffered_.data()), messageSize)); // dispatch the message
+        reinterpret_cast<target &>(*this).process(std::span(reinterpret_cast<std::uint8_t const *>(buffered_.data()), messageSize)); // dispatch the message
         buffered_.erase(buffered_.begin(), buffered_.begin() + messageSize);
         return true; // message dispatched
     }
@@ -292,8 +338,8 @@ bool bcpp::message::pipe<T0, T1>::process_next_message
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-std::size_t bcpp::message::pipe<T0, T1>::get_bytes_available
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+std::size_t bcpp::message::receiver<T, P, Q>::get_bytes_available
 (
 ) const
 {
@@ -302,8 +348,8 @@ std::size_t bcpp::message::pipe<T0, T1>::get_bytes_available
 
 
 //=============================================================================
-template <bcpp::message::protocol_concept T0, bcpp::message::packet_queue_concept T1>
-bool bcpp::message::pipe<T0, T1>::empty
+template <typename T, bcpp::message::protocol_concept P, bcpp::message::packet_queue_concept Q>
+bool bcpp::message::receiver<T, P, Q>::empty
 (
 ) const
 {

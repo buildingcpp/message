@@ -1,19 +1,16 @@
 #pragma once
 
-#include "./message.h"
-#include "./pipe/pipe.h"
-
 
 namespace bcpp::message 
 {
 
-    template <packet_concept T>
+    template <protocol_concept P, packet_concept T>
     class transmitter final
     {
     public:
 
-        using packet = T;
-        using protocol = typename packet::protocol;
+        using packet_type = T;
+        using protocol = P;
 
         static auto constexpr default_packet_capacity = ((1 << 10) * 2);
 
@@ -22,8 +19,8 @@ namespace bcpp::message
             std::size_t packetCapacity_ = default_packet_capacity;
         };
 
-        using packet_allocate_handler = std::function<packet(transmitter const &, std::size_t)>;
-        using packet_handler = std::function<void(transmitter const &, packet)>;
+        using packet_allocate_handler = std::function<packet_type(transmitter const &, std::size_t)>;
+        using packet_handler = std::function<void(transmitter const &, packet_type)>;
 
         struct event_handlers
         {
@@ -52,7 +49,7 @@ namespace bcpp::message
 
         std::size_t                 packetCapacity_;
 
-        packet                      packet_;
+        packet_type                 packet_;
 
     }; // class transmitter
 
@@ -60,13 +57,13 @@ namespace bcpp::message
 
 
 //=============================================================================
-template <bcpp::message::packet_concept T>
-bcpp::message::transmitter<T>::transmitter
+template <bcpp::message::protocol_concept P, bcpp::message::packet_concept T>
+bcpp::message::transmitter<P, T>::transmitter
 (
     configuration const & config,
     event_handlers const & eventHandlers
 ):
-    packetAllocateHandler_(eventHandlers.packetAllocateHandler_ ? eventHandlers.packetAllocateHandler_ : [](auto const &, std::size_t capacity){return packet(capacity);}),
+    packetAllocateHandler_(eventHandlers.packetAllocateHandler_ ? eventHandlers.packetAllocateHandler_ : [](auto const &, std::size_t capacity){return packet_type(capacity);}),
     packetHandler_(eventHandlers.packetHandler_ ? eventHandlers.packetHandler_ : [](auto const &, auto){}),
     packetCapacity_((config.packetCapacity_ == 0) ? config.packetCapacity_ : default_packet_capacity)
 {
@@ -74,22 +71,34 @@ bcpp::message::transmitter<T>::transmitter
 
 
 //=============================================================================
-template <bcpp::message::packet_concept T>
-bool bcpp::message::transmitter<T>::send
+template <bcpp::message::protocol_concept P, bcpp::message::packet_concept T>
+bool bcpp::message::transmitter<P, T>::send
 (
     message_concept auto const & message
 ) requires (std::is_same_v<protocol, typename std::decay_t<decltype(message)>::protocol>)
 {
-    if (auto success = packet_.insert(message); success)
+    auto spaceRequired = message.size();
+    if (auto spaceRemaining = (packet_.capacity() - packet_.size()); spaceRemaining >= spaceRequired)
+    {
+        packet_.resize(packet_.size() + spaceRequired);
+        std::copy_n(reinterpret_cast<std::uint8_t const *>(&message), spaceRequired, packet_.end() - spaceRequired);
         return true;
+    }
+
     flush();
-    return packet_.insert(message);
+    if (auto spaceRemaining = (packet_.capacity() - packet_.size()); spaceRemaining >= spaceRequired)
+    {
+        packet_.resize(packet_.size() + spaceRequired);
+        std::copy_n(reinterpret_cast<std::uint8_t const *>(&message), spaceRequired, packet_.end() - spaceRequired);
+        return true;
+    }
+    return false;
 }
 
 
 //=============================================================================
-template <bcpp::message::packet_concept T>
-void bcpp::message::transmitter<T>::flush
+template <bcpp::message::protocol_concept P, bcpp::message::packet_concept T>
+void bcpp::message::transmitter<P, T>::flush
 (
 )
 {

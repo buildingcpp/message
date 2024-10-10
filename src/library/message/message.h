@@ -23,8 +23,5 @@ namespace bcpp::message
 } // namespace bcpp::message
 
 
-#include "./receiver.h"
-#include "./transmitter.h"
-#include "./pipe/pipe.h"
-
-
+#include "./receiver/receiver.h"
+#include "./transmitter/transmitter.h"

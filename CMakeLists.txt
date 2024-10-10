@@ -51,8 +51,9 @@ endif()
 include("${_scripts_src_path}/cmake/fetch_dependencies.cmake")
 
 fetch_dependency("https://github.com/buildingcpp/include.git;main")
-fetch_dependency("https://github.com/buildingcpp/system.git;main")
 fetch_dependency("https://github.com/buildingcpp/network.git;main")
+fetch_dependency("https://github.com/buildingcpp/system.git;main")
+fetch_dependency("https://github.com/buildingcpp/work_contract.git;main")
 
 option(MESSAGE_BUILD_DEMO "Build examples" ON)
 option(MESSAGE_BUILD_TEST "Build tests" ON)

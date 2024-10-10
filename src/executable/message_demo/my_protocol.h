@@ -5,8 +5,10 @@
 
 #include <cstdint>
 #include <array>
+#include <cstring>
 
 
+// define the message indicator type (field of header which declares the message type)
 enum class my_message_indicator : std::uint8_t
 {
     login_request = 1,
@@ -14,13 +16,14 @@ enum class my_message_indicator : std::uint8_t
 };
 
 
+// define the protocol, name, version, message indicator type, and list of message indicator
+// values which will be part of the protocol.
 using my_protocol = bcpp::message::protocol
         <
             bcpp::message::protocol_traits<"my_protocol_name", {1, 0, 'a'}, my_message_indicator>, 
             my_message_indicator::login_request,
             my_message_indicator::login_response
         >;
-
 
 
 namespace bcpp::message
@@ -54,8 +57,8 @@ namespace bcpp::message
         message():message_header(type, sizeof(*this)){};
         message(std::string_view const account, std::string_view const password):message_header(type, sizeof(*this))
         {
-            std::memcpy(account_.data(), account.data(), account.size());
-            std::memcpy(password_.data(), password.data(), password.size());
+            std::copy_n(account.data(), std::min(account.size(), account_.size()), account_.data());
+            std::copy_n(password.data(), std::min(password.size(), password_.size()), password_.data());
         }
         std::array<char, 32> account_{};
         std::array<char, 32> password_{};
