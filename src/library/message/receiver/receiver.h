@@ -18,7 +18,7 @@ namespace bcpp::message
 
     template <typename T, protocol_concept P, packet_queue_concept Q = std::queue<std::vector<char const>>>
     class receiver :
-        non_copyable
+        virtual non_copyable
     {
     public:
 

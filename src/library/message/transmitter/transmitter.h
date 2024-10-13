@@ -1,11 +1,17 @@
 #pragma once
 
+#include <include/non_copyable.h>
+
+#include <cstdint>
+#include <functional>
+
 
 namespace bcpp::message 
 {
 
     template <protocol_concept P, packet_concept T>
-    class transmitter final
+    class transmitter final :
+        virtual non_copyable
     {
     public:
 
