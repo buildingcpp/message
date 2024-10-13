@@ -1,6 +1,6 @@
 #pragma once
 
-#include "./packet_queue.h"
+#include <library/message/transport/packet_queue.h>
 
 #include <include/non_copyable.h>
 

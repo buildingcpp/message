@@ -85,6 +85,8 @@ namespace bcpp::message
 
         message():message_header(type, sizeof(*this)){}
 
+        static constexpr auto size(){return sizeof(message);} // fixed sized message
+
         message(response_code responseCode):message_header(type, sizeof(*this)), responseCode_(responseCode){}
 
         response_code responseCode_;

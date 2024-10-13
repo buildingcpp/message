@@ -81,11 +81,11 @@ int main
 
     // create a login request message in a 'packet'
     messageSender.send(login_request_message("my_account", "my_password"));
-    messageSender.send(login_response_message(login_response_message::response_code::success));
+    messageSender.emplace<login_response_message>(login_response_message::response_code::success);
 
     messageSender.flush();
 
-    // loop until the message recipient class has acked the message that we just pushed into the pipe.
+    // loop until the message recipient class has acked the message that we just sent
     while (!done)
         messageRecipient.process_next_message();
   

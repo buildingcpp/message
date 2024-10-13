@@ -39,6 +39,12 @@ namespace bcpp::message
             message_concept auto const & message
         ) requires (std::is_same_v<protocol, typename std::decay_t<decltype(message)>::protocol>);
 
+        template <message_concept M, typename ... Ts>
+        bool emplace
+        (
+            Ts && ...
+        ) requires (std::is_same_v<protocol, typename M::protocol>);
+
         void flush();
 
     private:
@@ -93,6 +99,51 @@ bool bcpp::message::transmitter<P, T>::send
         return true;
     }
     return false;
+}
+
+
+//=============================================================================
+template <bcpp::message::protocol_concept P, bcpp::message::packet_concept T>
+template <bcpp::message::message_concept M, typename ... Ts>
+bool bcpp::message::transmitter<P, T>::emplace
+(
+    // use placement new if possible
+    Ts && ... args
+) requires (std::is_same_v<protocol, typename M::protocol>)
+{
+    if constexpr (requires (){M::size(args ...);} || requires(){M::size();})
+    {
+        // emplace requires that the message's size() function be static and accepts the provided arguments.
+        // This basiclly means that to embed a message, its size must be calculable without requiring 
+        // consturction of the message.  Anything else defeats the point of an optimized emplace call entirely.
+        auto spaceRequired = 0;
+        if constexpr (requires (){M::size(args ...);})
+            spaceRequired = M::size(args ...); // has a ctor that takes the provided args
+        else
+            spaceRequired = M::size(); // only has the option to use the default ctor
+
+        if (auto spaceRemaining = (packet_.capacity() - packet_.size()); spaceRemaining >= spaceRequired)
+        {
+            packet_.resize(packet_.size() + spaceRequired);
+            new (&*packet_.end() - spaceRequired) M(std::forward<Ts>(args) ...);
+            return true;
+        }
+
+        flush();
+        if (auto spaceRemaining = (packet_.capacity() - packet_.size()); spaceRemaining >= spaceRequired)
+        {
+            packet_.resize(packet_.size() + spaceRequired);
+            new (&*packet_.end() - spaceRequired) M(std::forward<Ts>(args) ...);
+            return true;
+        }
+        return false;
+    }
+    else
+    {
+        // dynamic message can not be constructed in place because we don't know how much space to reserve
+        // or require in the current packet.  Instead, we construct the message and then send via copy.
+        return send(M(std::forward<Ts>(args) ...));
+    }
 }
 
 
