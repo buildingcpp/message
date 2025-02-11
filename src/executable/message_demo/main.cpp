@@ -36,6 +36,7 @@ private:
     auto & operator()
     (
         // a message callback used when receiving login_request_messages
+        receiver const &,
         login_request_message const & loginRequestMessage
     )
     {
@@ -47,6 +48,7 @@ private:
     auto & operator()
     (
         // a message callback used when receiving login_response_messages
+        receiver const &,
         login_response_message const & loginResponseMessage
     )
     {
