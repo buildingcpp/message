@@ -100,7 +100,7 @@ namespace bcpp::message
         )
         {
             using message_type = message<protocol, M>;
-            return (reinterpret_cast<target &>(self)(self, *reinterpret_cast<message_type const *>(address)));
+            return (reinterpret_cast<target &>(self)(*reinterpret_cast<message_type const *>(address)));
         }
 
         void clear();
@@ -151,7 +151,7 @@ bcpp::message::receiver<T, P, Q>::receiver
         ([&]()
             {    
                 // only configure a callback if 'target' supports receiving that message type
-                if constexpr (requires (target t, receiver d, message<protocol, P::get(N)> m){t(d, m);})
+                if constexpr (requires (target t, message<protocol, P::get(N)> m){t(m);})
                     callback_[static_cast<underlying_message_indicator>(P::get(N))] = dispatch_message<P::get(N)>;
                 else
                 {
@@ -303,7 +303,7 @@ bool bcpp::message::receiver<T, P, Q>::process_next_message
         // the next packet has sufficient data to represent an entire message
         bytesConsumedInNextPacket_ += messageSize;
         bytesAvailable_ -= messageSize;
-        reinterpret_cast<target &>(*this).process(std::span(reinterpret_cast<std::uint8_t const *>(&messageHeader), messageSize)); // dispatch the message
+        process(std::span(reinterpret_cast<std::uint8_t const *>(&messageHeader), messageSize)); // dispatch the message
         return true; // message dispatched
     }
 
@@ -330,7 +330,7 @@ bool bcpp::message::receiver<T, P, Q>::process_next_message
 
         // the next packet has sufficient data to represent an entire message
         bytesAvailable_ -= messageSize;
-        reinterpret_cast<target &>(*this).process(std::span(reinterpret_cast<std::uint8_t const *>(buffered_.data()), messageSize)); // dispatch the message
+        process(std::span(reinterpret_cast<std::uint8_t const *>(buffered_.data()), messageSize)); // dispatch the message
         buffered_.erase(buffered_.begin(), buffered_.begin() + messageSize);
         return true; // message dispatched
     }
