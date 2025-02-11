@@ -93,14 +93,14 @@ namespace bcpp::message
         static auto constexpr max_underlying_message_indicator_value = (1 << (sizeof(underlying_message_indicator) * bits_per_byte));
 
         template <message_indicator M>
-        static void dispatch_message
+        static target & dispatch_message
         (
             receiver & self,
             void const * address
         )
         {
             using message_type = message<protocol, M>;
-            reinterpret_cast<target &>(self)(*reinterpret_cast<message_type const *>(address));
+            return (reinterpret_cast<target &>(self)(*reinterpret_cast<message_type const *>(address)));
         }
 
         void clear();
@@ -117,13 +117,13 @@ namespace bcpp::message
 
         std::size_t             bytesConsumedInNextPacket_{0};
 
-        static std::array<void (*)(receiver &, void const *), max_underlying_message_indicator_value> callback_;
+        static std::array<target &(*)(receiver &, void const *), max_underlying_message_indicator_value> callback_;
 
     }; // class receiver
 
 
     template <typename T, protocol_concept P, packet_queue_concept Q>
-    std::array<void(*)(receiver<T, P, Q> &, void const *), receiver<T, P, Q>::max_underlying_message_indicator_value> receiver<T, P, Q>::callback_;
+    std::array<T &(*)(receiver<T, P, Q> &, void const *), receiver<T, P, Q>::max_underlying_message_indicator_value> receiver<T, P, Q>::callback_;
 
 
     template <typename T>
